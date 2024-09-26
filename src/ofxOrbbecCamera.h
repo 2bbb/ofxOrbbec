@@ -7,119 +7,136 @@
 
 //If you have ffmpeg / libavcodec included in your project uncomment below 
 //You can easily get the required libs from ofxFFmpegRTSP addon ( if you add it to your project )
-#define OFXORBBEC_DECODE_H264_H265
+//#define OFXORBBEC_DECODE_H264_H265
 
 // this allows us to decode the color video streams from Femto Mega over IP connection 
 #ifdef OFXORBBEC_DECODE_H264_H265
-    extern "C" {
+extern "C" {
     #include <libavcodec/avcodec.h>
     #include <libavformat/avformat.h>
     #include <libswscale/swscale.h>
     #include <libavutil/imgutils.h>
-    }
+}
 #endif 
 
+#define USE_GLOBAL_CONTEXT 1
+
 namespace ofxOrbbec{
+    struct Settings{
 
-struct Settings{
+        struct FrameType{
+            int requestWidth = 0; //needed
+            int requestHeight = 0;//usually not needed, width is enough
+            OBFormat format = OB_FORMAT_UNKNOWN; //DEPTH: OB_FORMAT_Y16 COLOR: OB_FORMAT_RGB or OB_FORMAT_MJPG
+            int frameRate = 30;
+        };
 
-    struct FrameType{
-        int requestWidth = 0; //needed
-        int requestHeight = 0;//usually not needed, width is enough 
-        OBFormat format = OB_FORMAT_UNKNOWN; //DEPTH: OB_FORMAT_Y16 COLOR: OB_FORMAT_RGB or OB_FORMAT_MJPG 
-        int frameRate = 30;
+        std::string ip = "";
+        int deviceID = 0;
+        std::string deviceSerial = "";
+
+        FrameType depthFrameSize;
+        FrameType colorFrameSize;
+        FrameType irFrameSize;
+        
+        bool bColor = false;
+        bool bDepth = false;
+        bool bIR = false;
+        bool bPointCloud = false;
+        bool bPointCloudRGB = false;
     };
+};
 
-    std::string ip = "";
-    int deviceID = 0;
-    std::string deviceSerial = "";
 
-    FrameType depthFrameSize;
-    FrameType colorFrameSize; 
+class ofxOrbbecCamera : public ofThread {
+public:
+
+    ofxOrbbecCamera() = default;
+    ofxOrbbecCamera( const ofxOrbbecCamera & A) = default;
+    ~ofxOrbbecCamera();
+
+    bool open(ofxOrbbec::Settings aSettings);
+    bool isConnected();
+    void close();
+    void update();
+
+    static std::vector < std::shared_ptr<ob::DeviceInfo> > getDeviceList();
+
+    //any frame
+    bool isFrameNew() const;
+    bool isFrameNewDepth() const;
+    bool isFrameNewColor() const;
+    bool isFrameNewIR() const;
+
+    ofPixels getDepthPixels();
+    ofShortPixels getDepthPixelsS();
+    ofFloatPixels getDepthPixelsF();
+    ofPixels getColorPixels();
     
-    bool bColor = false;
-    bool bDepth = false; 
-    bool bPointCloud = false; 
-    bool bPointCloudRGB = false; 
-};
+    std::vector <glm::vec3> getPointCloud();
+    ofMesh getPointCloudMesh();
 
-};
+protected:
+    void threadedFunction() override;
+    void clear();
+    
+    ofPixels processFrame(std::shared_ptr<ob::Frame> frame);
+    ofFloatPixels processFrameFloatPixels(std::shared_ptr<ob::Frame> frame);
+    ofShortPixels processFrameShortPixels(std::shared_ptr<ob::Frame> frame);
+    void pointCloudToMesh(std::shared_ptr<ob::DepthFrame> depthFrame,
+                          std::shared_ptr<ob::ColorFrame> colorFrame = std::shared_ptr<ob::ColorFrame>());
 
+    ofxOrbbec::Settings mCurrentSettings;
+    
+    bool bNewFrameColor, bNewFrameDepth, bNewFrameIR = false;
+    
+    unsigned int mInternalDepthFrameNo = 0;
+    unsigned int mExtDepthFrameNo = 0;
 
-class ofxOrbbecCamera : public ofThread{
-    public:
+    unsigned int mInternalColorFrameNo = 0;
+    unsigned int mInternalIRFrameNo = 0;
 
-        ofxOrbbecCamera() = default; 
-        ofxOrbbecCamera( const ofxOrbbecCamera & A) = default; 
-        ~ofxOrbbecCamera();
+    unsigned int mExtColorFrameNo = 0;
+    unsigned int mExtIRFrameNo = 0;
 
-        bool open(ofxOrbbec::Settings aSettings);
-        bool isConnected();
-        void close();
-        void update();
+    ofPixels mDepthPixels;
+    ofFloatPixels mDepthPixelsF;
+    ofShortPixels mDepthPixelsS;
+    
+    ofPixels mColorPixels;
 
-        static std::vector < std::shared_ptr<ob::DeviceInfo> > getDeviceList(); 
+    ofPixels mIRPixels;
 
-        //any frame
-        bool isFrameNew();
-        bool isFrameNewDepth();
-        bool isFrameNewColor();
-        bool isFrameNewIR();
+    ofMesh mPointCloudMesh;
+    ofMesh mPointCloudMeshLocal;
+    std::vector<glm::vec3> mPointCloudPts;
+    std::vector<glm::vec3> mPointCloudPtsLocal;
 
-        ofPixels getDepthPixels();
-        ofFloatPixels getDepthPixelsF(); 
-        ofPixels getColorPixels(); 
-        
-        std::vector <glm::vec3> getPointCloud(); 
-        ofMesh getPointCloudMesh();
+    std::shared_ptr<ob::Pipeline> mPipe;
+    std::shared_ptr<ob::PointCloudFilter> pointCloud;
+#if !USE_GLOBAL_CONTEXT
+    std::shared_ptr<ob::Context> ctxLocal;
+#endif
+    
+    #ifdef OFXORBBEC_DECODE_H264_H265
 
-    protected:
-        void threadedFunction() override; 
-        void clear(); 
-        
-        ofPixels processFrame(shared_ptr<ob::Frame> frame);
-		void pointCloudToMesh(shared_ptr<ob::DepthFrame> depthFrame, shared_ptr<ob::ColorFrame> colorFrame = shared_ptr<ob::ColorFrame>() );
+        bool bInitOneTime = false;
 
-        ofxOrbbec::Settings mCurrentSettings;
-        
-        bool bNewFrameColor, bNewFrameDepth, bNewFrameIR = false; 
-        
-        unsigned int mInternalDepthFrameNo = 0;
-		unsigned int mInternalColorFrameNo = 0;
-		unsigned int mExtDepthFrameNo = 0;
-		unsigned int mExtColorFrameNo = 0;
+        AVCodec* codec264 = nullptr;
+        AVCodecContext* codecContext264 = nullptr;
 
-        ofPixels mDepthPixels, mColorPixels; 
-        ofFloatPixels mDepthPixelsF;
+        AVCodec* codec265 = nullptr;
+        AVCodecContext* codecContext265 = nullptr;
 
-        ofMesh mPointCloudMesh; 
-        ofMesh mPointCloudMeshLocal;
-        vector <glm::vec3> mPointCloudPts;
-        vector <glm::vec3> mPointCloudPtsLocal;
+        SwsContext* swsContext = nullptr;
 
-		std::shared_ptr <ob::Pipeline> mPipe;
-   		std::shared_ptr <ob::PointCloudFilter> pointCloud;
-   		std::shared_ptr <ob::Context> ctxLocal;
+        void initH26XCodecs();
+        ofPixels decodeH26XFrame(uint8_t * myData, int dataSize, bool bH264);
 
-        #ifdef OFXORBBEC_DECODE_H264_H265 
-
-            bool bInitOneTime = false; 
-
-            AVCodec* codec264 = nullptr;
-            AVCodecContext* codecContext264 = nullptr;
-
-            AVCodec* codec265 = nullptr;
-            AVCodecContext* codecContext265 = nullptr;
-
-            SwsContext* swsContext = nullptr;
-
-            void initH26XCodecs();
-            ofPixels decodeH26XFrame(uint8_t * myData, int dataSize, bool bH264);
-
-        #endif
-        
-        OBXYTables xyTables;
-        vector <float> xyTableData;
-        vector <uint8_t> mPointcloudData;
+    #endif
+    
+    OBXYTables xyTables;
+    std::vector<float> xyTableData;
+    std::vector<uint8_t> mPointcloudData;
 
 };

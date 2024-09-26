@@ -2,14 +2,20 @@
 #include "ofxOrbbecCamera.h"
 #include <libobsensor/hpp/Utils.hpp>
 
+#if USE_GLOBAL_CONTEXT
+static ob::Context context;
+#endif
 
-std::vector < std::shared_ptr<ob::DeviceInfo> > ofxOrbbecCamera::getDeviceList(){
-    std::vector<std::shared_ptr<ob::DeviceInfo> > dInfo; 
+std::vector < std::shared_ptr<ob::DeviceInfo> > ofxOrbbecCamera::getDeviceList() {
+    std::vector<std::shared_ptr<ob::DeviceInfo> > dInfo;
 
+#if USE_GLOBAL_CONTEXT
+    auto tCtx = &context;
+#else
     auto tCtx = make_shared<ob::Context>(); //ofxOrbbecCamera::getContext();
-
+#endif
     // Query the list of connected devices
-        auto devList = tCtx->queryDeviceList();
+    auto devList = tCtx->queryDeviceList();
     
     // Get the number of connected devices
     int devCount = devList->deviceCount();
@@ -30,16 +36,16 @@ std::vector < std::shared_ptr<ob::DeviceInfo> > ofxOrbbecCamera::getDeviceList()
 //Class functions 
 ofxOrbbecCamera::~ofxOrbbecCamera(){
     close();
-    #ifdef OFXORBBEC_DECODE_H264_H265
-        if(bInitOneTime){
-            avcodec_close(codecContext264);
-            av_free(codecContext264);
+#ifdef OFXORBBEC_DECODE_H264_H265
+    if(bInitOneTime){
+        avcodec_close(codecContext264);
+        av_free(codecContext264);
 
-            avcodec_close(codecContext265);
-            av_free(codecContext265);
-            bInitOneTime = false; 
-        }
-    #endif 
+        avcodec_close(codecContext265);
+        av_free(codecContext265);
+        bInitOneTime = false;
+    }
+#endif
 }
 
 void ofxOrbbecCamera::close(){
@@ -66,7 +72,9 @@ void ofxOrbbecCamera::clear(){
     mInternalColorFrameNo = mInternalDepthFrameNo = 0;
     mExtColorFrameNo = mExtDepthFrameNo = 0;
     mPipe.reset();
+#if !USE_GLOBAL_CONTEXT
 	ctxLocal.reset();
+#endif
 }
 
 bool ofxOrbbecCamera::open(ofxOrbbec::Settings aSettings){
@@ -75,9 +83,13 @@ bool ofxOrbbecCamera::open(ofxOrbbec::Settings aSettings){
 	ob::Context::setLoggerToFile(OB_LOG_SEVERITY_OFF, "log.txt");
 	ob::Context::setLoggerToConsole(OB_LOG_SEVERITY_INFO);
 
+#if USE_GLOBAL_CONTEXT
+    auto tCtx = &context;
+#else
 	ctxLocal = make_shared<ob::Context>();
     auto tCtx = ctxLocal;
-
+#endif
+    
     std::shared_ptr<ob::Device> device;
 
     //need depth frames for point cloud
@@ -115,7 +127,7 @@ bool ofxOrbbecCamera::open(ofxOrbbec::Settings aSettings){
             std::cout << "["<< i <<"] device is " << info->name() << " serial: " << info->serialNumber() << std::endl; 
 
             if( openWithSerial ){
-                string serialStr(info->serialNumber()); 
+                std::string serialStr(info->serialNumber());
                 if( aSettings.deviceSerial == serialStr ){
                     device = dev;
                     break; 
@@ -127,8 +139,7 @@ bool ofxOrbbecCamera::open(ofxOrbbec::Settings aSettings){
                 }
             }
         }
-
-    }    
+    }
 
     if( device ){
         // pass in device to create pipeline
@@ -139,19 +150,23 @@ bool ofxOrbbecCamera::open(ofxOrbbec::Settings aSettings){
              // Create Config for configuring Pipeline work
             std::shared_ptr<ob::Config> config = std::make_shared<ob::Config>();
 
-			shared_ptr<ob::StreamProfile> depthProfile;
-			shared_ptr<ob::StreamProfile> colorProfile;
+            std::shared_ptr<ob::StreamProfile> depthProfile;
+            std::shared_ptr<ob::StreamProfile> colorProfile;
+            std::shared_ptr<ob::StreamProfile> irProfile;
 
             if( aSettings.bDepth ){
                 // Get the depth camera configuration list
                 auto depthProfileList = mPipe->getStreamProfileList(OB_SENSOR_DEPTH);
 
-                if( mCurrentSettings.depthFrameSize.requestWidth > 0){
+                if(0 < mCurrentSettings.depthFrameSize.requestWidth){
                     try {
                         auto requestType = mCurrentSettings.depthFrameSize;
 
                         // Find the corresponding profile according to the specified format
-                        depthProfile = depthProfileList->getVideoStreamProfile(requestType.requestWidth, requestType.requestHeight, requestType.format, requestType.frameRate);
+                        depthProfile = depthProfileList->getVideoStreamProfile(requestType.requestWidth,
+                                                                               requestType.requestHeight,
+                                                                               requestType.format,
+                                                                               requestType.frameRate);
                     }
                     catch(ob::Error &e) {
                         ofLogWarning("ofxOrbbecCamera::open") << " couldn't open depth with requested dimensions / format - using default "; 
@@ -170,7 +185,7 @@ bool ofxOrbbecCamera::open(ofxOrbbec::Settings aSettings){
                 // Get the color camera configuration list
                 auto colorProfileList = mPipe->getStreamProfileList(OB_SENSOR_COLOR);
 
-                if( mCurrentSettings.colorFrameSize.requestWidth > 0){
+                if(0 < mCurrentSettings.colorFrameSize.requestWidth){
                     try {
                         auto requestType = mCurrentSettings.colorFrameSize;
 
@@ -189,7 +204,28 @@ bool ofxOrbbecCamera::open(ofxOrbbec::Settings aSettings){
                 // enable color stream
                 config->enableStream(colorProfile);
             }
-
+            
+            if( aSettings.bIR ) {
+                auto irProfileList = mPipe->getStreamProfileList(OB_SENSOR_IR);
+                
+                if(0 < mCurrentSettings.irFrameSize.requestWidth) {
+                    try {
+                        auto requestType = mCurrentSettings.irFrameSize;
+                        
+                        irProfile = irProfileList->getVideoStreamProfile(requestType.requestWidth,
+                                                                         requestType.requestHeight,
+                                                                         requestType.format,
+                                                                         requestType.frameRate);
+                    }
+                    catch(ob::Error &e) {
+                        ofLogWarning("ofxOrbbecCamera::open") << " couldn't open depth with requested dimensions / format - using default ";
+                        irProfile = irProfileList->getProfile(0);
+                    }
+                } else {
+                    irProfile = irProfileList->getProfile(0);
+                }
+            }
+            
             if( aSettings.bPointCloud ){
                 if( aSettings.bColor && aSettings.bPointCloudRGB ){
                     
@@ -213,7 +249,6 @@ bool ofxOrbbecCamera::open(ofxOrbbec::Settings aSettings){
 				}
             }
             
-
             // Pass in the configuration and start the pipeline
             mPipe->start(config);
 
@@ -258,8 +293,8 @@ bool ofxOrbbecCamera::open(ofxOrbbec::Settings aSettings){
 
             startThread();
 
-        }else{
-            return false; 
+        } else {
+            return false;
         }
 
     }
@@ -289,7 +324,7 @@ ofPixels ofxOrbbecCamera::getColorPixels(){
     return mColorPixels;
 }
 
-vector <glm::vec3> ofxOrbbecCamera::getPointCloud(){
+std::vector <glm::vec3> ofxOrbbecCamera::getPointCloud(){
     mExtDepthFrameNo = mInternalDepthFrameNo;
     return mPointCloudPtsLocal;
 } 
@@ -314,7 +349,7 @@ void ofxOrbbecCamera::update(){
 
 void ofxOrbbecCamera::threadedFunction(){
     while(isThreadRunning()){
-        if( mPipe ){
+        if( mPipe ) {
             auto frameSet = mPipe->waitForFrames(20);
             if(frameSet) {
                 
@@ -331,8 +366,8 @@ void ofxOrbbecCamera::threadedFunction(){
                             catch(std::exception &e) {
                                 std::cout << "Get point cloud failed" << std::endl;
                             };
-                        }else{
-                            mInternalDepthFrameNo++; 
+                        } else {
+                            mInternalDepthFrameNo++;
                         }
 
                     }
@@ -368,7 +403,13 @@ void ofxOrbbecCamera::threadedFunction(){
 
                     }
                 }
-
+                
+                if( mCurrentSettings.bIR ){
+                    auto irFrame = frameSet->getFrame(OB_FRAME_IR);
+                    if(irFrame) {
+                        
+                    }
+                }
             }
         }
 
@@ -376,16 +417,20 @@ void ofxOrbbecCamera::threadedFunction(){
     }
 }
         
-bool ofxOrbbecCamera::isFrameNew(){
+bool ofxOrbbecCamera::isFrameNew() const {
     return bNewFrameColor || bNewFrameDepth || bNewFrameIR;
 }
 
-bool ofxOrbbecCamera::isFrameNewDepth(){
+bool ofxOrbbecCamera::isFrameNewDepth() const {
     return bNewFrameDepth;
 }
 
-bool ofxOrbbecCamera::isFrameNewColor(){
+bool ofxOrbbecCamera::isFrameNewColor() const {
     return bNewFrameColor;
+}
+
+bool ofxOrbbecCamera::isFrameNewIR() const {
+    return bNewFrameIR;
 }
 
 
@@ -466,10 +511,60 @@ ofPixels ofxOrbbecCamera::decodeH26XFrame(uint8_t * myData, int dataSize, bool b
 
 #endif 
 
+ofFloatPixels ofxOrbbecCamera::processFrameFloatPixels(std::shared_ptr<ob::Frame> frame) {
+    ofFloatPixels pix;
+    cv::Mat imuMat;
+    cv::Mat rstMat;
+
+    try{
+        if( !frame ){
+            return pix;
+        }
+
+        if(frame->type() == OB_FRAME_DEPTH) {
+            auto videoFrame = frame->as<ob::VideoFrame>();
+            if(videoFrame->format() == OB_FORMAT_Y16) {
+                std::vector<float> raw_pixels;
+                raw_pixels.resize(videoFrame->width() * videoFrame->height());
+                float scale = videoFrame->as<ob::DepthFrame>()->getValueScale();
+                std::for_each(raw_pixels.begin(),
+                              raw_pixels.end(),
+                              [scale](float &x) { x *= scale; });
+                std::memcpy(raw_pixels.data(), videoFrame->data(), sizeof(float) * videoFrame->width() * videoFrame->height());
+                
+                pix.setFromPixels(raw_pixels.data(), videoFrame->width(), videoFrame->height(), 1);
+            }
+        }
+    } catch(const cv::Exception& ex) {
+        ofLogError("processFrame") << " OB_FORMAT not supported " << std::endl;
+    }
+    return pix;
+}
+
+ofShortPixels ofxOrbbecCamera::processFrameShortPixels(shared_ptr<ob::Frame> frame) {
+    ofShortPixels pix;
+    cv::Mat imuMat;
+    cv::Mat rstMat;
+
+    try{
+        if( !frame ){
+            return pix;
+        }
+
+        if(frame->type() == OB_FRAME_DEPTH) {
+            auto videoFrame = frame->as<ob::VideoFrame>();
+            if(videoFrame->format() == OB_FORMAT_Y16) {
+                pix.setFromPixels((unsigned short *)videoFrame->data(), videoFrame->width(), videoFrame->height(), 1);
+            }
+        }
+    } catch(const cv::Exception& ex) {
+        ofLogError("processFrame") << " OB_FORMAT not supported " << std::endl;
+    }
+    return pix;
+}
 
 ofPixels ofxOrbbecCamera::processFrame(shared_ptr<ob::Frame> frame){
-
-    ofPixels pix; 
+    ofPixels pix;
     cv::Mat imuMat;
     cv::Mat rstMat;
 
@@ -602,7 +697,7 @@ void ofxOrbbecCamera::pointCloudToMesh(shared_ptr<ob::DepthFrame> depthFrame, sh
             pointcloudSize = numPoints * sizeof(OBPoint);
         }
 		
-		vector <uint8_t> pointcloudData;
+		std::vector <uint8_t> pointcloudData;
 		if( mPointcloudData.size() != pointcloudSize){
 			mPointcloudData.resize(pointcloudSize);
 		}
