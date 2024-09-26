@@ -14,7 +14,8 @@ void ofxOrbbecCamera::printInfo() {
 #endif
     // Query the list of connected devices
     auto devList = tCtx->queryDeviceList();
-    
+    std::shared_ptr<ob::DeviceList> m_deviceList = devList;
+
     uint32_t devCount = devList->deviceCount();
 
     const int DEFAULT_WIDTH = 640;
@@ -26,7 +27,6 @@ void ofxOrbbecCamera::printInfo() {
         std::shared_ptr<ob::Context> m_context = std::make_shared<ob::Context>();
         std::shared_ptr<ob::Pipeline> m_pipeline = std::make_shared<ob::Pipeline>();
         std::shared_ptr<ob::Config> m_config;
-        std::shared_ptr<ob::DeviceList> m_deviceList;
         std::shared_ptr<ob::Device> m_device = nullptr;
         std::vector<std::string> m_deviceStringList;
         std::vector<std::string> m_deviceDepthModeStringList;
