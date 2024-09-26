@@ -6,8 +6,8 @@
 static ob::Context context;
 #endif
 
-std::vector < std::shared_ptr<ob::DeviceInfo> > ofxOrbbecCamera::getDeviceList() {
-    std::vector<std::shared_ptr<ob::DeviceInfo> > dInfo;
+std::vector<std::shared_ptr<ob::DeviceInfo>> ofxOrbbecCamera::getDeviceList() {
+    std::vector<std::shared_ptr<ob::DeviceInfo>> dInfo;
 
 #if USE_GLOBAL_CONTEXT
     auto tCtx = &context;
@@ -18,14 +18,14 @@ std::vector < std::shared_ptr<ob::DeviceInfo> > ofxOrbbecCamera::getDeviceList()
     auto devList = tCtx->queryDeviceList();
     
     // Get the number of connected devices
-    int devCount = devList->deviceCount();
+    uint32_t devCount = devList->deviceCount();
 
     // traverse the device list and create a pipe
-    for(int i = 0; i < devCount; i++) {
+    for(uint32_t i = 0; i < devCount; i++) {
         auto dev  = devList->getDevice(i);
         auto info = dev->getDeviceInfo();
 
-        ofLogNotice("ofxOrbbecCamera::getDeviceList()") << "["<< i <<"] device is " << info->name() << " serial: " << info->serialNumber() << std::endl; 
+        ofLogNotice("ofxOrbbecCamera::getDeviceList()") << "["<< i <<"] device is " << info->name() << " serial: " << info->serialNumber();
 
         dInfo.push_back(info);
     }
@@ -55,16 +55,15 @@ void ofxOrbbecCamera::close(){
 void ofxOrbbecCamera::clear(){
 
     if( isThreadRunning() ){
-        waitForThread(true, 2000); 
-    }
-    try{
-		if( mPipe ){	
+        waitForThread(true, 2000);
+    } try {
+		if( mPipe ){
 			mPipe->stop();
 			mPipe.reset();
 			pointCloud.reset();
         }
-    }catch(ob::Error &e) {
-        std::cerr << "function:" << e.getName() << "\nargs:" << e.getArgs() << "\nmessage:" << e.getMessage() << "\ntype:" << e.getExceptionType() << std::endl;
+    } catch(ob::Error &e) {
+        ofLogError("ofxOrbbecCamera::clear") << "function:" << e.getName() << "\nargs:" << e.getArgs() << "\nmessage:" << e.getMessage() << "\ntype:" << e.getExceptionType();
     }
 
     mCurrentSettings = ofxOrbbec::Settings();
@@ -103,7 +102,7 @@ bool ofxOrbbecCamera::open(ofxOrbbec::Settings aSettings){
         try{
             device = tCtx->createNetDevice(aSettings.ip.c_str(), 8090);
         }catch(ob::Error &e) {
-            std::cerr << "function:" << e.getName() << "\nargs:" << e.getArgs() << "\nmessage:" << e.getMessage() << "\ntype:" << e.getExceptionType() << std::endl;
+            ofLogError("ofxOrbbecCamera::open") << "function:" << e.getName() << "\nargs:" << e.getArgs() << "\nmessage:" << e.getMessage() << "\ntype:" << e.getExceptionType();
         }
         if(!device){
             return false; 
@@ -269,7 +268,7 @@ bool ofxOrbbecCamera::open(ofxOrbbec::Settings aSettings){
 					xyTableData.resize(tableSize);
 					
 					if(!ob::CoordinateTransformHelper::transformationInitXYTables(param, OB_SENSOR_COLOR, &xyTableData[0], &tableSize, &xyTables)) {
-						ofLogError() << " couldn't init xyTables for depth " << endl;
+						ofLogError("ofxOrbbecCamera") << " couldn't init xyTables for depth";
 					}
 					
                 }else{
@@ -283,7 +282,7 @@ bool ofxOrbbecCamera::open(ofxOrbbec::Settings aSettings){
 					xyTableData.resize(tableSize);
 					
 					if(!ob::CoordinateTransformHelper::transformationInitXYTables(param, OB_SENSOR_DEPTH, &xyTableData[0], &tableSize, &xyTables)) {
-						ofLogError() << " couldn't init xyTables for depth " << endl;
+						ofLogError("ofxOrbbecCamera") << " couldn't init xyTables for depth";
 					}
 
                 }
@@ -309,19 +308,34 @@ bool ofxOrbbecCamera::isConnected(){
 	return false;
 }
 
-ofPixels ofxOrbbecCamera::getDepthPixels(){
+const ofPixels &ofxOrbbecCamera::getDepthPixels() {
     mExtDepthFrameNo = mInternalDepthFrameNo;
     return mDepthPixels;
 }
 
-ofFloatPixels ofxOrbbecCamera::getDepthPixelsF(){
+const ofShortPixels &ofxOrbbecCamera::getDepthPixelsS() {
+    mExtDepthFrameNo = mInternalDepthFrameNo;
+    return mDepthPixelsS;
+}
+
+const ofFloatPixels &ofxOrbbecCamera::getDepthPixelsF() {
     mExtDepthFrameNo = mInternalDepthFrameNo;
     return mDepthPixelsF;
 } 
 
-ofPixels ofxOrbbecCamera::getColorPixels(){
+const ofPixels &ofxOrbbecCamera::getColorPixels() {
     mExtColorFrameNo = mInternalColorFrameNo;
     return mColorPixels;
+}
+
+const ofPixels &ofxOrbbecCamera::getIRPixels() {
+    mExtIRFrameNo = mInternalIRFrameNo;
+    return mIRPixels;
+}
+
+const ofShortPixels &ofxOrbbecCamera::getIRPixelsS() {
+    mExtIRFrameNo = mInternalIRFrameNo;
+    return mIRPixelsS;
 }
 
 std::vector <glm::vec3> ofxOrbbecCamera::getPointCloud(){
@@ -336,14 +350,9 @@ ofMesh ofxOrbbecCamera::getPointCloudMesh(){
 
 void ofxOrbbecCamera::update(){
     if( mPipe ){
-        bNewFrameDepth = bNewFrameColor = bNewFrameIR = false; 
-        if( mInternalDepthFrameNo > mExtDepthFrameNo ){
-            bNewFrameDepth = true; 
-            bNewFrameIR = true; 
-        }
-        if( mInternalColorFrameNo > mExtColorFrameNo ){
-            bNewFrameColor = true; 
-        }
+        bNewFrameDepth = mExtDepthFrameNo < mInternalDepthFrameNo;
+        bNewFrameColor = mExtColorFrameNo < mInternalColorFrameNo;
+        bNewFrameIR = mExtIRFrameNo < mInternalIRFrameNo;
     }
 }
 
@@ -364,16 +373,15 @@ void ofxOrbbecCamera::threadedFunction(){
                                 pointCloudToMesh(frameSet->depthFrame());
                             }
                             catch(std::exception &e) {
-                                std::cout << "Get point cloud failed" << std::endl;
+                                ofLogError("ofxOrbbecCamera") << "Get point cloud failed";
                             };
                         } else {
                             mInternalDepthFrameNo++;
                         }
-
                     }
                 }
 
-                if( mCurrentSettings.bColor ){
+                if(mCurrentSettings.bColor) {
                     auto colorFrame = frameSet->getFrame(OB_FRAME_COLOR);
                     if(colorFrame) {
                         mColorPixels = processFrame(colorFrame);
@@ -389,7 +397,7 @@ void ofxOrbbecCamera::threadedFunction(){
                                     pointCloudToMesh(frameSet->depthFrame(), frameSet->colorFrame());
                                 }
                                 catch(std::exception &e) {
-                                    std::cout << "Get point cloud failed" << std::endl;
+                                    ofLogError("ofxOrbbecCamera") << "Get point cloud failed";
                                 }
                             }
                         }else{
@@ -404,10 +412,11 @@ void ofxOrbbecCamera::threadedFunction(){
                     }
                 }
                 
-                if( mCurrentSettings.bIR ){
+                if(mCurrentSettings.bIR) {
                     auto irFrame = frameSet->getFrame(OB_FRAME_IR);
                     if(irFrame) {
-                        
+                        mIRPixelsS = processFrameShortPixels(irFrame);
+                        mInternalIRFrameNo++;
                     }
                 }
             }
@@ -541,7 +550,7 @@ ofFloatPixels ofxOrbbecCamera::processFrameFloatPixels(std::shared_ptr<ob::Frame
     return pix;
 }
 
-ofShortPixels ofxOrbbecCamera::processFrameShortPixels(shared_ptr<ob::Frame> frame) {
+ofShortPixels ofxOrbbecCamera::processFrameShortPixels(std::shared_ptr<ob::Frame> frame) {
     ofShortPixels pix;
     cv::Mat imuMat;
     cv::Mat rstMat;
@@ -551,7 +560,11 @@ ofShortPixels ofxOrbbecCamera::processFrameShortPixels(shared_ptr<ob::Frame> fra
             return pix;
         }
 
-        if(frame->type() == OB_FRAME_DEPTH) {
+        if(frame->type() == OB_FRAME_DEPTH
+           || frame->type() == OB_FRAME_IR
+           || frame->type() == OB_FRAME_IR_LEFT
+           || frame->type() == OB_FRAME_IR_RIGHT)
+        {
             auto videoFrame = frame->as<ob::VideoFrame>();
             if(videoFrame->format() == OB_FORMAT_Y16) {
                 pix.setFromPixels((unsigned short *)videoFrame->data(), videoFrame->width(), videoFrame->height(), 1);
@@ -563,7 +576,7 @@ ofShortPixels ofxOrbbecCamera::processFrameShortPixels(shared_ptr<ob::Frame> fra
     return pix;
 }
 
-ofPixels ofxOrbbecCamera::processFrame(shared_ptr<ob::Frame> frame){
+ofPixels ofxOrbbecCamera::processFrame(std::shared_ptr<ob::Frame> frame){
     ofPixels pix;
     cv::Mat imuMat;
     cv::Mat rstMat;
@@ -582,7 +595,7 @@ ofPixels ofxOrbbecCamera::processFrame(shared_ptr<ob::Frame> frame){
                 #ifdef OFXORBBEC_DECODE_H264_H265 
                     pix = decodeH26XFrame((uint8_t*)videoFrame->data(), videoFrame->dataSize(), true);
                 #else
-                    ofLogError("ofxOrbbecCamera::processFrame") << " h264 / h265 not enabled. Define OFXORBBEC_DECODE_H264_H265 or set color format to OB_FORMAT_RGB " << endl;
+                    ofLogError("ofxOrbbecCamera::processFrame") << " h264 / h265 not enabled. Define OFXORBBEC_DECODE_H264_H265 or set color format to OB_FORMAT_RGB ";
                 #endif  
 
             break; 
@@ -591,7 +604,7 @@ ofPixels ofxOrbbecCamera::processFrame(shared_ptr<ob::Frame> frame){
                 #ifdef OFXORBBEC_DECODE_H264_H265 
                     pix = decodeH26XFrame((uint8_t*)videoFrame->data(), videoFrame->dataSize(), false);
                 #else
-                    ofLogError("ofxOrbbecCamera::processFrame") << " h264 / h265 not enabled. Define OFXORBBEC_DECODE_H264_H265 or set color format to OB_FORMAT_RGB " << endl;
+                    ofLogError("ofxOrbbecCamera::processFrame") << " h264 / h265 not enabled. Define OFXORBBEC_DECODE_H264_H265 or set color format to OB_FORMAT_RGB ";
                 #endif 
 
             break; 
@@ -602,7 +615,7 @@ ofPixels ofxOrbbecCamera::processFrame(shared_ptr<ob::Frame> frame){
                 rstMat = cv::imdecode(rawMat, 1);
                 cv::cvtColor(rstMat, rstMat, cv::COLOR_BGR2RGB);
 #else
-                ofLogError("ofxOrbbecCamera::processFrame") << " MJPG not supported - set color format to OB_FORMAT_RGB " << endl;
+                ofLogError("ofxOrbbecCamera::processFrame") << " MJPG not supported - set color format to OB_FORMAT_RGB";
 #endif
 
             } break;
@@ -665,7 +678,7 @@ ofPixels ofxOrbbecCamera::processFrame(shared_ptr<ob::Frame> frame){
                 rstMat = cv::imdecode(rawMat, 1);
                 rstMat = rawMat;//cv::cvtColor(rstMat * 2, rstMat, cv::COLOR_GRAY2RGB);
 #else
-                ofLogError("ofxOrbbecCamera::processFrame") << " MJPG not supported - set IR format to OB_FORMAT_Y16 or OB_FORMAT_Y8 " << endl;
+                ofLogError("ofxOrbbecCamera::processFrame") << " MJPG not supported - set IR format to OB_FORMAT_Y16 or OB_FORMAT_Y8";
 #endif
             }
             if(!rstMat.empty()) {
@@ -678,7 +691,9 @@ ofPixels ofxOrbbecCamera::processFrame(shared_ptr<ob::Frame> frame){
     return pix; 
 }
 
-void ofxOrbbecCamera::pointCloudToMesh(shared_ptr<ob::DepthFrame> depthFrame, shared_ptr<ob::ColorFrame> colorFrame){
+void ofxOrbbecCamera::pointCloudToMesh(std::shared_ptr<ob::DepthFrame> depthFrame,
+                                       std::shared_ptr<ob::ColorFrame> colorFrame)
+{
     if( depthFrame ){
     
 		bool bRGB = false;

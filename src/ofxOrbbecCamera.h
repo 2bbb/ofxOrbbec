@@ -52,7 +52,7 @@ class ofxOrbbecCamera : public ofThread {
 public:
 
     ofxOrbbecCamera() = default;
-    ofxOrbbecCamera( const ofxOrbbecCamera & A) = default;
+//    ofxOrbbecCamera( const ofxOrbbecCamera & A) = default;
     ~ofxOrbbecCamera();
 
     bool open(ofxOrbbec::Settings aSettings);
@@ -68,10 +68,14 @@ public:
     bool isFrameNewColor() const;
     bool isFrameNewIR() const;
 
-    ofPixels getDepthPixels();
-    ofShortPixels getDepthPixelsS();
-    ofFloatPixels getDepthPixelsF();
-    ofPixels getColorPixels();
+    const ofPixels &getDepthPixels();
+    const ofShortPixels &getDepthPixelsS();
+    const ofFloatPixels &getDepthPixelsF();
+    
+    const ofPixels &getColorPixels();
+    
+    const ofPixels &getIRPixels();
+    const ofShortPixels &getIRPixelsS();
     
     std::vector <glm::vec3> getPointCloud();
     ofMesh getPointCloudMesh();
@@ -106,7 +110,8 @@ protected:
     ofPixels mColorPixels;
 
     ofPixels mIRPixels;
-
+    ofShortPixels mIRPixelsS;
+    
     ofMesh mPointCloudMesh;
     ofMesh mPointCloudMeshLocal;
     std::vector<glm::vec3> mPointCloudPts;
