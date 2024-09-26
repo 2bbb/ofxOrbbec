@@ -269,7 +269,7 @@ bool ofxOrbbecCamera::open(ofxOrbbec::Settings aSettings){
     }else{
 
         // Query the list of connected devices
-         auto devList = tCtx->queryDeviceList();
+        auto devList = tCtx->queryDeviceList();
         
         // Get the number of connected devices
         int devCount = devList->deviceCount();
@@ -282,7 +282,7 @@ bool ofxOrbbecCamera::open(ofxOrbbec::Settings aSettings){
             auto dev  = devList->getDevice(i);
             auto info = dev->getDeviceInfo();
 
-            std::cout << "["<< i <<"] device is " << info->name() << " serial: " << info->serialNumber() << std::endl; 
+            std::cout << "[" << i << "] device is " << info->name() << " serial: " << info->serialNumber() << std::endl;
 
             if( openWithSerial ){
                 std::string serialStr(info->serialNumber());
@@ -377,7 +377,7 @@ bool ofxOrbbecCamera::open(ofxOrbbec::Settings aSettings){
                                                                              requestType.frameRate);
                         }
                         catch(ob::Error &e) {
-                            ofLogWarning("ofxOrbbecCamera::open") << " couldn't open depth with requested dimensions / format - using default ";
+                            ofLogWarning("ofxOrbbecCamera::open") << "couldn't open depth with requested dimensions / format - using default";
                             irProfile = irProfileList->getProfile(0);
                         }
                     } else {
@@ -396,7 +396,7 @@ bool ofxOrbbecCamera::open(ofxOrbbec::Settings aSettings){
                                                                                  requestType.frameRate);
                             }
                             catch(ob::Error &e) {
-                                ofLogWarning("ofxOrbbecCamera::open") << " couldn't open depth with requested dimensions / format - using default ";
+                                ofLogWarning("ofxOrbbecCamera::open") << "couldn't open depth with requested dimensions / format - using default";
                                 irProfile = irProfileList->getProfile(0);
                             }
                         } else {
@@ -596,10 +596,12 @@ void ofxOrbbecCamera::threadedFunction(){
                 }
                 
                 if(mCurrentSettings.bIR) {
-                    auto irFrame = frameSet->getFrame(OB_FRAME_IR);
+                    auto irFrame = frameSet->irFrame();
                     if(irFrame) {
                         mIRPixelsS = processFrameShortPixels(irFrame);
                         mInternalIRFrameNo++;
+                    } else {
+                        ofLogError() << "ir frame is null";
                     }
                 }
             }
