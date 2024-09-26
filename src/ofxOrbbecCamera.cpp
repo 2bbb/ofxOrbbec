@@ -6,6 +6,165 @@
 static ob::Context context;
 #endif
 
+void ofxOrbbecCamera::printInfo() {
+#if USE_GLOBAL_CONTEXT
+    auto tCtx = &context;
+#else
+    auto tCtx = make_shared<ob::Context>(); //ofxOrbbecCamera::getContext();
+#endif
+    // Query the list of connected devices
+    auto devList = tCtx->queryDeviceList();
+    
+    uint32_t devCount = devList->deviceCount();
+
+    const int DEFAULT_WIDTH = 640;
+    const int DEFAULT_HEIGHT = 480;
+
+    // traverse the device list and create a pipe
+    for(uint32_t deviceIndex = 0; deviceIndex < devCount; deviceIndex++) {
+        bool g_isIRUnique;
+        std::shared_ptr<ob::Context> m_context = std::make_shared<ob::Context>();
+        std::shared_ptr<ob::Pipeline> m_pipeline = std::make_shared<ob::Pipeline>();
+        std::shared_ptr<ob::Config> m_config;
+        std::shared_ptr<ob::DeviceList> m_deviceList;
+        std::shared_ptr<ob::Device> m_device = nullptr;
+        std::vector<std::string> m_deviceStringList;
+        std::vector<std::string> m_deviceDepthModeStringList;
+        int m_curDeviceDepthMode;
+
+        OBCameraParam m_curCameraParams;
+
+        std::shared_ptr<ob::StreamProfileList> m_colorStreamProfileList;
+        std::shared_ptr<ob::StreamProfileList> m_depthStreamProfileList;
+        std::shared_ptr<ob::StreamProfileList> m_irStreamProfileList;
+
+        std::shared_ptr<ob::VideoStreamProfile> m_colorStreamProfile;
+        std::shared_ptr<ob::VideoStreamProfile> m_depthStreamProfile;
+        std::shared_ptr<ob::VideoStreamProfile> m_irStreamProfile;
+
+        std::shared_ptr<ob::Frame> m_curColorFrame;
+        std::shared_ptr<ob::Frame> m_curDepthFrame;
+        std::shared_ptr<ob::Frame> m_curIRFrame;
+
+        std::shared_ptr<ob::FrameSet> m_curFrameSet;
+        
+        bool m_bIsD2CAlignmentOn = false;
+        bool m_bIsSWD2C = false;
+        bool m_bisFrameSyncOn = false;
+
+        bool m_bIsDepthOn = false;
+        bool m_bIsColorOn = false;
+        bool m_bIsIROn = false;
+        bool m_bIsPointCloudOn = false;
+        //ob::PointCloudFilter m_pointCloud;
+        std::vector<OBColorPoint> m_points;
+        
+        m_device = m_deviceList->getDevice(deviceIndex);
+        m_pipeline = std::make_shared<ob::Pipeline>(m_device);
+        // Configure which streams to enable or disable for the Pipeline by creating a Config
+        m_config = std::make_shared<ob::Config>();
+        
+        // Retrieve Depth work mode list
+        if (m_device->isPropertySupported(OB_STRUCT_CURRENT_DEPTH_ALG_MODE, OB_PERMISSION_READ_WRITE)) {
+            try {
+                // Get the current Depth work mode
+                auto curDepthMode = m_device->getCurrentDepthWorkMode();
+                // Obtain the work mode list for Depth camera
+                auto depthModeList = m_device->getDepthWorkModeList();
+                for (uint32_t i = 0; i < depthModeList->count(); i++) {
+                    m_deviceDepthModeStringList.push_back((*depthModeList)[i].name);
+                    ofLogNotice() << m_deviceDepthModeStringList.back();
+                    if (strcmp(curDepthMode.name, (*depthModeList)[i].name) == 0) {
+                        m_curDeviceDepthMode = i;
+                    }
+                }
+                m_device->switchDepthWorkMode(m_deviceDepthModeStringList[0].c_str());
+            }
+            catch (ob::Error& e) {
+                std::cerr << "function:" << e.getName() << "\nargs:" << e.getArgs() << "\nmessage:" << e.getMessage() << "\ntype:" << e.getExceptionType() << std::endl;
+            }
+        }
+        
+        // Obtain all Stream Profiles for Color camera, including resolution, frame rate, and format
+        m_colorStreamProfileList = m_pipeline->getStreamProfileList(OB_SENSOR_COLOR);
+        m_colorStreamProfile = nullptr;
+        try {
+            // According to the desired configurations to find the corresponding Profile, preference to RGB888 format
+            m_colorStreamProfile = m_colorStreamProfileList->getVideoStreamProfile(1920, 1080, OB_FORMAT_RGB888, 30);
+        }
+        catch (ob::Error& e) {
+            // Open default Profile if cannot find the corresponding format
+            m_colorStreamProfile = std::const_pointer_cast<ob::StreamProfile>(m_colorStreamProfileList->getProfile(0))->as<ob::VideoStreamProfile>();
+        }
+        
+        
+        // Obtain all Stream Profiles for Depth camera, including resolution, frame rate, and format
+        m_depthStreamProfileList = m_pipeline->getStreamProfileList(OB_SENSOR_DEPTH);
+        m_depthStreamProfile = nullptr;
+        try {
+            // According to the desired configurations to find the corresponding Profile, preference to Y16 format
+            m_depthStreamProfile = m_depthStreamProfileList->getVideoStreamProfile(1920, 0, OB_FORMAT_Y16, 30);
+        }
+        catch (ob::Error& e) {
+            // Open default Profile if cannot find the corresponding format
+            m_depthStreamProfile = std::const_pointer_cast<ob::StreamProfile>(m_depthStreamProfileList->getProfile(0))->as<ob::VideoStreamProfile>();
+        }
+        
+        // Try find supported depth to color align hardware mode profile
+        m_depthStreamProfileList = m_pipeline->getD2CDepthProfileList(m_colorStreamProfile, ALIGN_D2C_HW_MODE);
+        if (m_depthStreamProfileList->count() > 0) {
+            m_bIsSWD2C = false;
+        }
+        else {
+            // Try find supported depth to color align software mode profile
+            m_depthStreamProfileList = m_pipeline->getD2CDepthProfileList(m_colorStreamProfile, ALIGN_D2C_SW_MODE);
+            if (m_depthStreamProfileList->count() > 0) {
+                m_bIsSWD2C = true;
+            }
+        }
+        
+        // Obtain all Stream Profiles for IR camera, including resolution, frame rate, and format
+        try {
+            m_irStreamProfileList = m_pipeline->getStreamProfileList(OB_SENSOR_IR);
+            m_irStreamProfile = nullptr;
+            try {
+                // According to the desired configurations to find the corresponding Profile, preference to Y16 format
+                m_irStreamProfile = m_irStreamProfileList->getVideoStreamProfile(1920, 1080, OB_FORMAT_Y16, 30);
+            }
+            catch (ob::Error& e) {
+                // Open default Profile if cannot find the corresponding format
+                m_irStreamProfile = std::const_pointer_cast<ob::StreamProfile>(m_irStreamProfileList->getProfile(0))->as<ob::VideoStreamProfile>();
+            }
+        }
+        catch (ob::Error& e) {
+            g_isIRUnique = false;
+            // Dual IR, open with IR Left in default
+            m_irStreamProfileList = m_pipeline->getStreamProfileList(OB_SENSOR_IR_LEFT);
+            m_irStreamProfile = nullptr;
+            try {
+                // According to the desired configurations to find the corresponding Profile, preference to Y16 format
+                m_irStreamProfile = m_irStreamProfileList->getVideoStreamProfile(DEFAULT_WIDTH, DEFAULT_HEIGHT, OB_FORMAT_Y16, 30);
+            }
+            catch (ob::Error& e) {
+                // Open default Profile if cannot find the corresponding format
+                m_irStreamProfile = std::const_pointer_cast<ob::StreamProfile>(m_irStreamProfileList->getProfile(0))->as<ob::VideoStreamProfile>();
+            }
+        }
+        
+        // TO OBTAIN A DEFAULT CAMERA PARAMETER
+        try {
+            m_config->enableStream(m_depthStreamProfile);
+            m_pipeline->start(m_config);
+            m_curCameraParams = m_pipeline->getCameraParam();
+            m_pipeline->stop();
+            m_config->disableStream(OB_STREAM_DEPTH);
+        }
+        catch (ob::Error& e) {
+            std::cerr << "startCurDepth: " << e.getName() << "\nargs:" << e.getArgs() << "\nmessage:" << e.getMessage() << "\ntype:" << e.getExceptionType() << std::endl;
+        }
+    }
+}
+
 std::vector<std::shared_ptr<ob::DeviceInfo>> ofxOrbbecCamera::getDeviceList() {
     std::vector<std::shared_ptr<ob::DeviceInfo>> dInfo;
 
@@ -54,10 +213,10 @@ void ofxOrbbecCamera::close(){
 
 void ofxOrbbecCamera::clear(){
 
-    if( isThreadRunning() ){
+    if(isThreadRunning()) {
         waitForThread(true, 2000);
     } try {
-		if( mPipe ){
+		if(mPipe) {
 			mPipe->stop();
 			mPipe.reset();
 			pointCloud.reset();
@@ -207,21 +366,45 @@ bool ofxOrbbecCamera::open(ofxOrbbec::Settings aSettings){
             if( aSettings.bIR ) {
                 auto irProfileList = mPipe->getStreamProfileList(OB_SENSOR_IR);
                 
-                if(0 < mCurrentSettings.irFrameSize.requestWidth) {
-                    try {
-                        auto requestType = mCurrentSettings.irFrameSize;
-                        
-                        irProfile = irProfileList->getVideoStreamProfile(requestType.requestWidth,
-                                                                         requestType.requestHeight,
-                                                                         requestType.format,
-                                                                         requestType.frameRate);
-                    }
-                    catch(ob::Error &e) {
-                        ofLogWarning("ofxOrbbecCamera::open") << " couldn't open depth with requested dimensions / format - using default ";
+                if(0 < irProfileList->count()) {
+                    if(0 < mCurrentSettings.irFrameSize.requestWidth) {
+                        try {
+                            auto requestType = mCurrentSettings.irFrameSize;
+                            
+                            irProfile = irProfileList->getVideoStreamProfile(requestType.requestWidth,
+                                                                             requestType.requestHeight,
+                                                                             requestType.format,
+                                                                             requestType.frameRate);
+                        }
+                        catch(ob::Error &e) {
+                            ofLogWarning("ofxOrbbecCamera::open") << " couldn't open depth with requested dimensions / format - using default ";
+                            irProfile = irProfileList->getProfile(0);
+                        }
+                    } else {
                         irProfile = irProfileList->getProfile(0);
                     }
                 } else {
-                    irProfile = irProfileList->getProfile(0);
+                    irProfileList = mPipe->getStreamProfileList(OB_SENSOR_IR_LEFT);
+                    if(0 < irProfileList->count()) {
+                        if(0 < mCurrentSettings.irFrameSize.requestWidth) {
+                            try {
+                                auto requestType = mCurrentSettings.irFrameSize;
+                                
+                                irProfile = irProfileList->getVideoStreamProfile(requestType.requestWidth,
+                                                                                 requestType.requestHeight,
+                                                                                 requestType.format,
+                                                                                 requestType.frameRate);
+                            }
+                            catch(ob::Error &e) {
+                                ofLogWarning("ofxOrbbecCamera::open") << " couldn't open depth with requested dimensions / format - using default ";
+                                irProfile = irProfileList->getProfile(0);
+                            }
+                        } else {
+                            irProfile = irProfileList->getProfile(0);
+                        }
+                    } else {
+                        ofLogError("ofxOrbbecCamera::open") << "no IR...?";
+                    }
                 }
             }
             

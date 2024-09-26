@@ -21,8 +21,8 @@ extern "C" {
 
 #define USE_GLOBAL_CONTEXT 1
 
-namespace ofxOrbbec{
-    struct Settings{
+namespace ofxOrbbec {
+    struct Settings {
 
         struct FrameType{
             int requestWidth = 0; //needed
@@ -50,6 +50,7 @@ namespace ofxOrbbec{
 
 class ofxOrbbecCamera : public ofThread {
 public:
+    static void printInfo();
     static std::vector<std::shared_ptr<ob::DeviceInfo>> getDeviceList();
     
     ofxOrbbecCamera() = default;
