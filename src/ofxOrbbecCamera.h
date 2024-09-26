@@ -50,7 +50,8 @@ namespace ofxOrbbec{
 
 class ofxOrbbecCamera : public ofThread {
 public:
-
+    static std::vector<std::shared_ptr<ob::DeviceInfo>> getDeviceList();
+    
     ofxOrbbecCamera() = default;
 //    ofxOrbbecCamera( const ofxOrbbecCamera & A) = default;
     ~ofxOrbbecCamera();
@@ -59,8 +60,6 @@ public:
     bool isConnected();
     void close();
     void update();
-
-    static std::vector < std::shared_ptr<ob::DeviceInfo> > getDeviceList();
 
     //any frame
     bool isFrameNew() const;
