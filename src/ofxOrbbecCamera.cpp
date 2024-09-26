@@ -406,6 +406,7 @@ bool ofxOrbbecCamera::open(ofxOrbbec::Settings aSettings){
                         ofLogError("ofxOrbbecCamera::open") << "no IR...?";
                     }
                 }
+                config->enableStream(irProfile);
             }
             
             if( aSettings.bPointCloud ){
