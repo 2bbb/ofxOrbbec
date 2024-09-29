@@ -599,6 +599,7 @@ void ofxOrbbecCamera::threadedFunction(){
                 if(mCurrentSettings.bIR) {
                     auto irFrame = frameSet->irFrame();
                     if(irFrame) {
+                        mIRPixels = processFrame(irFrame);
                         mIRPixelsS = processFrameShortPixels(irFrame);
                         mInternalIRFrameNo++;
                     } else {
